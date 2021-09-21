@@ -1,0 +1,167 @@
+---
+title: "Statistical Analysis of GCSE results in London, 2009 - 2013"
+output: word_document
+author: 
+fig_caption: yes
+---
+
+```{r, echo = FALSE}
+suppressPackageStartupMessages(library(readxl))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(reshape2))
+suppressPackageStartupMessages(library(broom))
+options(scipen = 10)
+
+
+rawData <- as.data.frame(read_excel("", sheet = "Data"))
+```
+
+## Introduction
+Many factors influence the students’ GCSE performance. For example, household income, quality of infrastructure, even geographic location may play a significant role in predicting how well a student will pass their exam. However, because it is impossible to account for all factors, we shall focus on two covariates - the percentage of unauthorised absence in all schools and reported public transport accessibility measure on a scale of 1 to 10.
+
+The purpose of this paper is to analyse the GCSE results in 6 London boroughs – Camden, Hackney, Haringey, Islington, Tower Hamlets and Westminster – and discover which factors have the most significant influence on the students’ exam results. Additionally, we shall build a model that would predict an average GCSE based on the two independent variables mentioned earlier, as well as two additional non-numeric independent variables, which are borough to which award belongs, and the year (we treat years as a categorical variable rather than a numeric one because the data is only available for five years).
+
+
+## Data description and transformation
+
+We obtained the data from the official website of the Government of London. The data set is in XLS format, and it contains 664 observations, each corresponding to a specific London ward, and 64 variables.
+
+To proceed with statistical analysis, we first need to turn the Excel file into a “tidy” data frame. We have done this using R packages “readxl”, “dplyr” and “reshape2”. Here is an excerpt from the prepared data frame.
+
+```{r , echo=FALSE}
+Data <- rawData[-1][rawData$Borough %in% c("Camden", "Hackney", "Haringey", "Islington", "Tower Hamlets", "Westminster"), c(1:3, 34:43, 49:53)]
+Data[, 4:18] <- lapply(Data[, 4:18], as.numeric)
+
+p1.data <- melt(Data[, 2:8], id.vars = c("Ward", "Borough"), measure.vars = 3:7)
+colnames(p1.data) <- c("Ward", "Borough", "Year", "GCSE")
+p1.data <- within(p1.data, {
+  GCSE = as.numeric(GCSE) 
+  Year = case_when(grepl("2009", Year) ~ "2009",
+                   grepl("2010", Year) ~ "2010",
+                   grepl("2011", Year) ~ "2011",
+                   grepl("2012", Year) ~ "2012",
+                   grepl("2013", Year) ~ "2013")
+  })
+
+p2.data <- melt(Data[, c(2:3, 9:13)], id.vars = c("Ward", "Borough"), measure.vars = 3:7)
+colnames(p2.data) <- c("Ward", "Borough", "Year", "Absence")
+p2.data <- within(p2.data, {
+  Abscence = as.numeric(Absence)
+  Year = case_when(grepl("2009", Year) ~ "2009",
+                   grepl("2010", Year) ~ "2010",
+                   grepl("2011", Year) ~ "2011",
+                   grepl("2012", Year) ~ "2012",
+                   grepl("2013", Year) ~ "2013")
+  })
+
+p3.data <- melt(Data[, c(2:3, 14:18)], id.vars = c("Ward", "Borough"), measure.vars = 3:7)
+colnames(p3.data) <- c("Ward", "Borough", "Year", "Transport")
+p3.data <- within(p3.data, {
+  Transport = as.numeric(Transport)
+  Year = case_when(grepl("2009", Year) ~ "2009",
+                   grepl("2010", Year) ~ "2010",
+                   grepl("2011", Year) ~ "2011",
+                   grepl("2012", Year) ~ "2012",
+                   grepl("2013", Year) ~ "2013")
+  })
+
+final <- merge(p1.data, merge(p2.data, p3.data, by = c("Ward", "Borough", "Year")), by = c("Ward", "Borough", "Year"))
+print(final[1:10, ])
+```
+
+We shall summarise the data from all numeric variables in our dataset - GCSE, Absence and Transport. Since sample means and sample median are close to each other in all three variables, one may assume that they are typically distributed. However, the Shapiro-Wilk test of normality (see Shapiro and Wilk (1965)) shows that such an assumption is wrong, as the null hypothesis is rejected in all three cases (p = 0.02 for GCSE and Absence, p < 0.01 for Transport).
+
+```{r, echo = FALSE}
+summary.table <- rbind(as.numeric(summary(final$GCSE)), as.numeric(summary(final$Abscence)), as.numeric(summary(final$Transport)))
+dimnames(summary.table) <- list(c("GCSE", "Absence", "Transport"), c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max."))
+print(summary.table)
+```
+
+## Analysis
+
+As it was said in the introduction, we treat GCSE results as a dependent variable. Below are three boxplots demonstrating the distribution of GCSE by borough, by year, and by the combination of borough and year. Note that the last graph is done in black and white because, with many boxes, colours will be uninterpretable.
+
+```{r, echo = FALSE}
+mycolours <- c(rgb(0.8, 0.2, 0.2), rgb(0.2, 0.8, 0.2), rgb(0.2, 0.2, 0.8), rgb(0.8, 0.8, 0.2), rgb(0.2, 0.8, 0.8), rgb(0.8, 0.2, 0.8))
+ggplot(data = final, aes(x = Year, group = Year, y = GCSE, fill = Year)) + geom_boxplot() + 
+  scale_fill_manual(values = alpha(mycolours, 0.75))
+ggplot(data = final, aes(x = Borough, y = GCSE, fill = Borough)) + geom_boxplot() + theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = alpha(mycolours, 0.75))
+ggplot(data = final, aes(x = interaction(Borough, Year), y = GCSE)) + geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), axis.title.x = element_blank())
+```
+
+Notice that, in the first graph, the line inside the box, which represents the median value, increases every year. As a result, the averages grew, although the growth slowed down in 2012-2013.
+
+```{r, echo = FALSE}
+agg.mean <- aggregate(data = final, GCSE ~ Year, mean)
+colnames(agg.mean) <- c("Year", "Mean GCSE")
+print(agg.mean)
+
+```
+
+Graphical comparison of GCSE results between boroughs is rather complicated. For example, although the average GCSE score in Westminster is higher than in all other boroughs of London, there is no way to conclude whether this difference is statistically significant just by looking at the graph. So instead, we shall use the Kruskal-Wallis test to check if the means are significantly different across groups. Kruskal-Wallis test is essentially a nonparametric version of ANOVA, and we use it because ANOVA requires that the data follow a normal distribution, an assumption our data violates.
+
+The summary of this statistical procedure is printed out below.
+
+```{r, echo = FALSE}
+kruskal.test(data = final, GCSE ~ Borough)
+```
+
+Since the p-value is very close to zero, we know that we can reject the null hypothesis of the equality of averages. However, the Kruskal-Wallis test does not indicate which sample pairs differ from each other, and to tackle this problem, we shall run *post-hoc Mann-Whitney tests* on all possible pairs. Furthermore, to adjust for multiple comparisons, Holm-Bonferroni correction is implemented (see Holm (1979) for more details). Below are the results of the post-hoc tests.
+
+```{r, echo = FALSE}
+pvals <- c("Westminster - Haringey" = with(final, wilcox.test(GCSE[Borough == "Westminster"], GCSE[Borough == "Haringey"]))$p.value,
+           "Westminster - Islington" = with(final, wilcox.test(GCSE[Borough == "Westminster"], GCSE[Borough == "Islington"]))$p.value,
+           "Westminster - Camden" = with(final, wilcox.test(GCSE[Borough == "Westminster"], GCSE[Borough == "Camden"]))$p.value,
+           "Westminster - Hackney" = with(final, wilcox.test(GCSE[Borough == "Westminster"], GCSE[Borough == "Hackney"]))$p.value,
+           "Westminster - T.Hamlets" = with(final, wilcox.test(GCSE[Borough == "Westminster"], GCSE[Borough == "Tower Hamlets"]))$p.value,
+           "Haringey - Islington" = with(final, wilcox.test(GCSE[Borough == "Haringey"], GCSE[Borough == "Islington"]))$p.value,
+           "Haringey - Camden" = with(final, wilcox.test(GCSE[Borough == "Haringey"], GCSE[Borough == "Camden"]))$p.value,
+           "Haringey - Hackney" = with(final, wilcox.test(GCSE[Borough == "Haringey"], GCSE[Borough == "Hackney"]))$p.value,
+           "Haringey - T.Hamlets" = with(final, wilcox.test(GCSE[Borough == "Haringey"], GCSE[Borough == "Tower Hamlets"]))$p.value,
+           "Islington - Camden" = with(final, wilcox.test(GCSE[Borough == "Islington"], GCSE[Borough == "Camden"]))$p.value,
+           "Islington - Hackney" = with(final, wilcox.test(GCSE[Borough == "Islington"], GCSE[Borough == "Hackney"]))$p.value,
+           "Islington - T.Hamlets" = with(final, wilcox.test(GCSE[Borough == "Islington"], GCSE[Borough == "Tower Hamlets"]))$p.value,
+           "Camden - Hackney" = with(final, wilcox.test(GCSE[Borough == "Camden"], GCSE[Borough == "Hackney"]))$p.value,
+           "Camden - T.Hamlets" = with(final, wilcox.test(GCSE[Borough == "Camden"], GCSE[Borough == "Tower Hamlets"]))$p.value,
+           "Hackney - T.Hamlets" = with(final, wilcox.test(GCSE[Borough == "Hackney"], GCSE[Borough == "Tower Hamlets"]))$p.value)
+pvals.df <- suppressWarnings(as.data.frame(tidy(round(p.adjust(pvals, method = "holm"), 4))))
+colnames(pvals.df) <- c("Pair", "p-value")
+head(pvals.df, 15)
+```
+*Note that, if p = 0, the adjusted p value is less than $10^{-4}$.* 
+
+As we can see from the table, Westminster contributes to the statistical significance, as only the pairs with Westminster have p-values less than 0.05.
+
+Now we shall proceed to an essential part of the research - building a predictive model. We shall build three models; the first will include the Absence variable, the second will consist of the Transport variable, and the final model will contain both independent variables. Thus, models 1 and 2 are simple linear regressions, whereas model 3 is multiple linear regression.
+
+
+```{r, echo = FALSE}
+summary(lm(data = final, GCSE ~ Absence))
+summary(lm(data = final, GCSE ~ Transport))
+summary(lm(data = final, GCSE ~ Absence + Transport))
+```
+
+In all the models, the Absence coefficient is insignificant, but the Transport coefficient is not. GCSE ~ Absence should be considered the best of the three models we constructed because of the highest adjusted R-squared. An increase of absence from a school by 1% leads to a decrease of an average GCSE score by almost 29 points. In an ideal situation, when there is no unauthorised absence whatsoever, the expected GCSE score is 368.4.
+
+However, it is possible to go even further and include boroughs as factors in our linear regression model. In such a case, these new coefficients are interpreted as the conditional difference between Camden - the base factor, and one of the other five boroughs. Since the adjusted R-square has increased to approximately 0.295, this model is even more accurate.
+
+
+```{r, echo = FALSE}
+summary(lm(data = final, GCSE ~ Absence + factor(Borough)))
+```
+
+Finally, we present a scatter plot that demonstrates clearly a negative dependence between GSCE results and absence from school.
+
+```{r, echo = FALSE}
+ggplot(data = final, aes(x = Absence, y = GCSE, col = Borough)) + geom_point() + scale_colour_manual(values = mycolours)
+```
+
+## Conclusion
+We have used Camden, Hackney, Haringey, Islington, Tower Hamlets and Westminster as a case study to demonstrate that GCSE results differ across various London boroughs, at least those we have investigated. The results in Westminster are the highest, and the mean GCSE result in Westminster is significantly different from that in all other boroughs. On the other hand, additional pairs of boroughs did not differ considerably in terms of average GCSE results. 
+
+Unauthorised absence in schools turned out to be an essential factor that negatively correlates with average GCSE scores. 
+
+Finally, we have built a predictive model that predicts GCSE scores based on the absence from schools and adjusts the prediction by borough.
